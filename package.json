@@ -2,16 +2,26 @@
   "name": "chat-app",
   "version": "1.0.0",
   "private": true,
-  "description": "Modular real-time chat application with WebSockets",
-  "main": "src/server/index.js",
+  "description": "Strongly typed real-time chat application with WebSockets",
+  "main": "dist/server/index.js",
   "scripts": {
-    "start": "node src/server/index.js",
-    "dev": "node --watch src/server/index.js"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/server/index.js",
+    "dev": "tsx watch src/server/index.ts"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.1",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
   }
 }

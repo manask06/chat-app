@@ -10,13 +10,20 @@
     <main class="app">
       <section class="panel">
         <h1>Realtime Chat</h1>
-        <p class="subtitle">Module 1: project scaffold and shared protocol.</p>
-        <div id="status" class="status">Initializing...</div>
-        <ul class="messages">
-          <li>Module 2 will add WebSocket server and event routing.</li>
-          <li>Module 3 will add live message send/receive.</li>
-          <li>Module 4 will add presence and message history sync.</li>
-        </ul>
+        <p class="subtitle">Typed WebSocket chat server and client.</p>
+        <form id="join-form" class="row">
+          <input id="name-input" type="text" maxlength="30" placeholder="Your name" required />
+          <button id="join-btn" type="submit">Join</button>
+        </form>
+        <div id="status" class="status">Connecting...</div>
+        <div id="presence" class="presence">No users online</div>
+      </section>
+      <section class="panel">
+        <ul id="messages" class="messages"></ul>
+        <form id="chat-form" class="row">
+          <input id="chat-input" type="text" maxlength="300" placeholder="Type message" disabled required />
+          <button id="send-btn" type="submit" disabled>Send</button>
+        </form>
       </section>
     </main>
     <script src="/client.js"></script>
