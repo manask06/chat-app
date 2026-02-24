@@ -7,6 +7,7 @@ import {
   MESSAGE_TYPES,
   type ClientEvent,
   type ServerEvent,
+  isClientEvent,
   safeParse,
   sanitizeText
 } from "../shared/protocol";
@@ -51,12 +52,21 @@ function buildPresence(): ServerEvent {
   store.getClients().forEach((client) => {
     if (client.name) users.push(client.name);
   });
+  users.sort((a, b) => a.localeCompare(b));
   return { type: MESSAGE_TYPES.PRESENCE, users };
+}
+
+function usernameExists(name: string): boolean {
+  const normalized = name.toLowerCase();
+  for (const [, client] of store.getClients()) {
+    if (client.name?.toLowerCase() === normalized) return true;
+  }
+  return false;
 }
 
 wsServer.on("connection", (socket) => {
   const clientId = randomUUID();
-  store.setClient(clientId, { socket, name: null });
+  store.setClient(clientId, { socket, name: null, isAlive: true });
 
   sendToClient(socket, {
     type: MESSAGE_TYPES.SYSTEM,
@@ -72,21 +82,43 @@ wsServer.on("connection", (socket) => {
 
   sendToClient(socket, buildPresence());
 
+  socket.on("pong", () => {
+    const client = store.getClient(clientId);
+    if (!client) return;
+    store.setClient(clientId, { ...client, isAlive: true });
+  });
+
   socket.on("message", (message) => {
-    const parsed = safeParse<ClientEvent>(message.toString());
+    const parsed = safeParse<unknown>(message.toString());
     if (!parsed.ok) {
       sendToClient(socket, { type: MESSAGE_TYPES.ERROR, text: "Invalid event payload" });
       return;
     }
+    if (!isClientEvent(parsed.value)) {
+      sendToClient(socket, { type: MESSAGE_TYPES.ERROR, text: "Unsupported event type" });
+      return;
+    }
+    const event: ClientEvent = parsed.value;
 
-    if (parsed.value.type === MESSAGE_TYPES.JOIN) {
-      const name = sanitizeText(parsed.value.name, 30);
+    if (event.type === MESSAGE_TYPES.JOIN) {
+      const name = sanitizeText(event.name, 30);
       if (!name) {
         sendToClient(socket, { type: MESSAGE_TYPES.ERROR, text: "Name is required" });
         return;
       }
 
-      store.setClient(clientId, { socket, name });
+      const current = store.getClient(clientId);
+      if (current?.name) {
+        sendToClient(socket, { type: MESSAGE_TYPES.ERROR, text: "You are already joined" });
+        return;
+      }
+
+      if (usernameExists(name)) {
+        sendToClient(socket, { type: MESSAGE_TYPES.ERROR, text: "Name already in use" });
+        return;
+      }
+
+      store.setClient(clientId, { socket, name, isAlive: true });
       const joinedMessage: ServerEvent = {
         type: MESSAGE_TYPES.SYSTEM,
         id: randomUUID(),
@@ -99,14 +131,14 @@ wsServer.on("connection", (socket) => {
       return;
     }
 
-    if (parsed.value.type === MESSAGE_TYPES.CHAT) {
+    if (event.type === MESSAGE_TYPES.CHAT) {
       const sender = store.getClient(clientId);
       if (!sender?.name) {
         sendToClient(socket, { type: MESSAGE_TYPES.ERROR, text: "Join before sending messages" });
         return;
       }
 
-      const text = sanitizeText(parsed.value.text, 300);
+      const text = sanitizeText(event.text, 300);
       if (!text) return;
 
       const chatMessage: ServerEvent = {
@@ -139,6 +171,24 @@ wsServer.on("connection", (socket) => {
     broadcast(leftMessage);
     broadcast(buildPresence());
   });
+});
+
+const heartbeatTimer = setInterval(() => {
+  for (const [clientId, client] of store.getClients()) {
+    if (!client.isAlive) {
+      client.socket.terminate();
+      store.removeClient(clientId);
+      broadcast(buildPresence());
+      continue;
+    }
+
+    store.setClient(clientId, { ...client, isAlive: false });
+    client.socket.ping();
+  }
+}, 30000);
+
+wsServer.on("close", () => {
+  clearInterval(heartbeatTimer);
 });
 
 server.listen(port, () => {

@@ -55,6 +55,20 @@ export type ErrorEvent = {
 
 export type ServerEvent = ChatMessage | SystemMessage | PresenceEvent | HistoryEvent | ErrorEvent;
 
+export function isClientEvent(value: unknown): value is ClientEvent {
+  if (typeof value !== "object" || value === null || !("type" in value)) return false;
+
+  if (value.type === MESSAGE_TYPES.JOIN) {
+    return "name" in value && typeof value.name === "string";
+  }
+
+  if (value.type === MESSAGE_TYPES.CHAT) {
+    return "text" in value && typeof value.text === "string";
+  }
+
+  return false;
+}
+
 export function safeParse<T>(jsonString: string): ParseResult<T> {
   try {
     return { ok: true, value: JSON.parse(jsonString) as T };

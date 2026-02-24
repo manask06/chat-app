@@ -4,6 +4,7 @@ import type { ChatMessage, SystemMessage } from "../shared/protocol";
 export type SocketClient = {
   socket: WebSocket;
   name: string | null;
+  isAlive: boolean;
 };
 
 export type StoredMessage = ChatMessage | SystemMessage;
@@ -36,4 +37,3 @@ export function createStateStore() {
     }
   };
 }
-

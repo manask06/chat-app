@@ -47,15 +47,42 @@
   /** @type {WebSocket | null} */
   let socket = null;
   let hasJoined = false;
+  let reconnectAttempts = 0;
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let reconnectTimer = null;
+  let desiredName = "";
 
   /**
    * @param {boolean} connected
    */
   function setConnectionState(connected) {
-    statusEl.textContent = connected ? "Connected" : "Disconnected";
+    if (connected) {
+      statusEl.textContent = "Connected";
+    } else if (reconnectTimer !== null) {
+      statusEl.textContent = "Disconnected, reconnecting...";
+    } else {
+      statusEl.textContent = "Disconnected";
+    }
     const canChat = connected && hasJoined;
     chatInputEl.disabled = !canChat;
     sendButtonEl.disabled = !canChat;
+  }
+
+  function clearReconnectTimer() {
+    if (reconnectTimer === null) return;
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  function scheduleReconnect() {
+    clearReconnectTimer();
+    const delay = Math.min(1000 * 2 ** reconnectAttempts, 10000);
+    reconnectAttempts += 1;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, delay);
+    setConnectionState(false);
   }
 
   /**
@@ -85,20 +112,37 @@
   }
 
   function connect() {
+    clearReconnectTimer();
     socket = new WebSocket(window.location.origin.replace(/^http/, "ws"));
+    const currentSocket = socket;
 
-    socket.addEventListener("open", () => {
+    currentSocket.addEventListener("open", () => {
+      reconnectAttempts = 0;
       setConnectionState(true);
+      if (desiredName && !hasJoined) {
+        currentSocket.send(JSON.stringify({ type: "join", name: desiredName }));
+        hasJoined = true;
+        nameInputEl.disabled = true;
+        joinButtonEl.disabled = true;
+        setConnectionState(true);
+      }
     });
 
-    socket.addEventListener("close", () => {
-      setConnectionState(false);
+    currentSocket.addEventListener("close", () => {
+      const shouldRetry = Boolean(desiredName);
       hasJoined = false;
-      nameInputEl.disabled = false;
-      joinButtonEl.disabled = false;
+      if (!shouldRetry) {
+        nameInputEl.disabled = false;
+        joinButtonEl.disabled = false;
+      }
+      if (shouldRetry) {
+        scheduleReconnect();
+      } else {
+        setConnectionState(false);
+      }
     });
 
-    socket.addEventListener("message", (event) => {
+    currentSocket.addEventListener("message", (event) => {
       const raw = event.data;
       if (typeof raw !== "string") return;
 
@@ -179,6 +223,14 @@
         typeof payload.text === "string"
       ) {
         addMessage(`Error: ${payload.text}`, undefined, true);
+        if (payload.text === "Name already in use") {
+          desiredName = "";
+          hasJoined = false;
+          clearReconnectTimer();
+          nameInputEl.disabled = false;
+          joinButtonEl.disabled = false;
+          setConnectionState(socket?.readyState === WebSocket.OPEN);
+        }
         return;
       }
 
@@ -200,6 +252,7 @@
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
     const name = nameInputEl.value.trim();
     if (!name) return;
+    desiredName = name;
     socket.send(JSON.stringify({ type: "join", name }));
     hasJoined = true;
     nameInputEl.disabled = true;
