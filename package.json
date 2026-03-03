@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test src/**/*.test.ts",
+    "check": "npm run typecheck && npm test && npm run build",
     "start": "node dist/server/index.js",
     "dev": "tsx watch src/server/index.ts"
   },

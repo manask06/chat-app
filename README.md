@@ -44,8 +44,24 @@ Compile TypeScript to `dist/`:
 npm run build
 ```
 
+## Verify All Checks Locally
+
+Run typecheck + tests + build in one command:
+
+```bash
+npm run check
+```
+
 ## Start (Production Build)
 
 ```bash
 npm start
 ```
+
+## CI
+
+GitHub Actions runs the same validation pipeline on push and pull requests:
+
+- `npm run typecheck`
+- `npm test`
+- `npm run build`
