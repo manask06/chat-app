@@ -30,6 +30,15 @@ npm run dev
 App URL: `http://localhost:3000`  
 Health URL: `http://localhost:3000/health`
 
+## Runtime Controls
+
+Optional environment variables:
+
+- `CHAT_RATE_WINDOW_MS` (default `10000`)
+- `CHAT_RATE_MAX_EVENTS` (default `10`)
+
+These control per-connection chat message throttling on the server.
+
 ## Type Check
 
 ```bash
@@ -57,6 +66,8 @@ npm run check
 ```bash
 npm start
 ```
+
+The server supports graceful shutdown on `SIGINT` and `SIGTERM`.
 
 ## CI
 

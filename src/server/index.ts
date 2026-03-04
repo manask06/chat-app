@@ -12,24 +12,45 @@ import {
   sanitizeText
 } from "../shared/protocol";
 import { createStateStore } from "./state";
+import { createSlidingWindowRateLimiter } from "./rate-limit";
 
 type HealthResponse = {
   status: "ok";
   service: "chat-app";
   app: "realtime-chat";
+  uptimeSeconds: number;
+  activeConnections: number;
 };
 
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
+}
+
 const port = Number(process.env.PORT ?? 3000);
+const chatRateWindowMs = parsePositiveInt(process.env.CHAT_RATE_WINDOW_MS, 10000);
+const chatRateMaxEvents = parsePositiveInt(process.env.CHAT_RATE_MAX_EVENTS, 10);
 const app = express();
 const server = http.createServer(app);
 const wsServer = new WebSocketServer({ server });
 const store = createStateStore();
+const chatRateLimiter = createSlidingWindowRateLimiter({
+  windowMs: chatRateWindowMs,
+  maxEvents: chatRateMaxEvents
+});
 
 const clientDir = path.join(process.cwd(), "src/client");
 app.use(express.static(clientDir));
 
 app.get("/health", (_req: Request, res: Response<HealthResponse>) => {
-  res.json({ status: "ok", service: "chat-app", app: "realtime-chat" });
+  res.json({
+    status: "ok",
+    service: "chat-app",
+    app: "realtime-chat",
+    uptimeSeconds: Math.floor(process.uptime()),
+    activeConnections: store.getClients().size
+  });
 });
 
 function sendToClient(socket: WebSocket, payload: ServerEvent): void {
@@ -137,6 +158,10 @@ wsServer.on("connection", (socket) => {
         sendToClient(socket, { type: MESSAGE_TYPES.ERROR, text: "Join before sending messages" });
         return;
       }
+      if (!chatRateLimiter.allow(clientId)) {
+        sendToClient(socket, { type: MESSAGE_TYPES.ERROR, text: "Too many messages, slow down" });
+        return;
+      }
 
       const text = sanitizeText(event.text, 300);
       if (!text) return;
@@ -156,6 +181,7 @@ wsServer.on("connection", (socket) => {
   socket.on("close", () => {
     const client = store.getClient(clientId);
     store.removeClient(clientId);
+    chatRateLimiter.reset(clientId);
     if (!client?.name) {
       broadcast(buildPresence());
       return;
@@ -178,6 +204,7 @@ const heartbeatTimer = setInterval(() => {
     if (!client.isAlive) {
       client.socket.terminate();
       store.removeClient(clientId);
+      chatRateLimiter.reset(clientId);
       broadcast(buildPresence());
       continue;
     }
@@ -185,11 +212,42 @@ const heartbeatTimer = setInterval(() => {
     store.setClient(clientId, { ...client, isAlive: false });
     client.socket.ping();
   }
+  chatRateLimiter.pruneIdle();
 }, 30000);
 
 wsServer.on("close", () => {
   clearInterval(heartbeatTimer);
 });
+
+let shuttingDown = false;
+function gracefulShutdown(signal: NodeJS.Signals): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`${signal} received, shutting down server`);
+
+  clearInterval(heartbeatTimer);
+
+  wsServer.clients.forEach((client) => {
+    if (client.readyState === client.OPEN) {
+      client.close(1001, "Server shutting down");
+      return;
+    }
+    client.terminate();
+  });
+
+  wsServer.close(() => {
+    server.close(() => {
+      process.exit(0);
+    });
+  });
+
+  setTimeout(() => {
+    process.exit(1);
+  }, 5000).unref();
+}
+
+process.on("SIGINT", gracefulShutdown);
+process.on("SIGTERM", gracefulShutdown);
 
 server.listen(port, () => {
   console.log(`chat app running on http://localhost:${port}`);
